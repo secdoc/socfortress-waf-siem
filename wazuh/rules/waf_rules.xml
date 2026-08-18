@@ -1,0 +1,96 @@
+<!--
+  SOC Pipeline - SOCFortress WAF (Coraza/OWASP CRS) detection rules
+  Rule-ID range: 117000-117999 (clear of DNS 116000-116999, Greenbone
+  115000-115999, UniFi 100001-110203).
+
+  Ingest: waf_collector.py -> waf_pipeline.py appends normalized JSON to the
+  Wazuh localfile /var/ossec/logs/waf/events.jsonl (log_format=json). Wazuh's
+  BUILT-IN json decoder extracts fields. NO custom decoder needed.
+
+  Normalized fields (all WAF-specific fields namespaced waf_* by the collector to
+  avoid Wazuh reserved-mapping collisions that silently drop docs):
+    event_type=waf_event, source=socfortress-waf, waf_action (blocked/detected),
+    waf_severity (CRITICAL/ERROR/WARNING/...), waf_rule_id (CRS id, string),
+    waf_client_ip, waf_method, waf_uri, waf_host, waf_matched_ids, waf_geo_cc.
+
+  ALERT DISCIPLINE (WAF is internet-facing; scanners generate steady block noise;
+  full volume lives in Graylog):
+  - Base rule 117000 = level 0: every WAF event recorded, NOT alerted.
+  - Single blocks fire at LOW levels (3-5): visible/queryable, do NOT page. One
+    blocked LFI probe from a scanner is not an incident; the pattern is.
+  - Frequency rules escalate to paging levels (10-12) only when one source IP
+    crosses a rate threshold in a window. That is the real signal.
+  - Thresholds are STARTING points; tune against baseline after go-live.
+
+  PITFALLS (carried from the DNS/Greenbone builds):
+  - Stock Suricata rule 86600 (level 0) matches ANY json with timestamp +
+    event_type and would swallow these; 117000 chains as its child via if_sid.
+  - Wazuh <field> defaults to OS_Regex, not PCRE; no numeric-range matches needed
+    here (we key on the waf_severity string + waf_action, both exact).
+  - Wazuh fires ONE rule per event (first match in tree order wins); higher-value
+    detections are ordered FIRST.
+  - This platform leaves anomaly_score=0 and carries severity as a STRING, so
+    severity bucketing keys on waf_severity, never the numeric score.
+-->
+<group name="waf,socfortress,coraza,">
+
+  <!-- Base: any WAF event. Level 0 = recorded, not alerted. -->
+  <rule id="117000" level="0">
+    <if_sid>86600</if_sid>
+    <field name="source">socfortress-waf</field>
+    <field name="event_type">waf_event</field>
+    <description>SOCFortress WAF event (base, not alerted)</description>
+  </rule>
+
+  <!-- ============ Single-event tags (LOW level, no paging) ============
+       Ordered highest-severity first so a multi-signal block resolves to the
+       strongest tag (Wazuh picks the first matching sibling). -->
+
+  <!-- A CRITICAL block: single event stays low (queryable, not a page). -->
+  <rule id="117010" level="5">
+    <if_sid>117000</if_sid>
+    <field name="waf_action">blocked</field>
+    <field name="waf_severity">CRITICAL</field>
+    <description>WAF blocked a CRITICAL request: $(waf_matched_rules) from $(waf_client_ip) to $(waf_host)$(waf_uri)</description>
+    <group>attack,web_attack,</group>
+  </rule>
+
+  <!-- Any other block (ERROR/WARNING/etc.). -->
+  <rule id="117011" level="3">
+    <if_sid>117000</if_sid>
+    <field name="waf_action">blocked</field>
+    <description>WAF blocked a request (rule $(waf_rule_id)) from $(waf_client_ip) to $(waf_host)$(waf_uri)</description>
+    <group>attack,web_attack,</group>
+  </rule>
+
+  <!-- Detected-only (site in detection mode; not blocked). Lowest tag. -->
+  <rule id="117012" level="2">
+    <if_sid>117000</if_sid>
+    <field name="waf_action">detected</field>
+    <description>WAF detected (not blocked) rule $(waf_rule_id) from $(waf_client_ip) to $(waf_host)$(waf_uri)</description>
+    <group>ids,web_attack,</group>
+  </rule>
+
+  <!-- ============ Frequency escalation (PAGING) ============
+       The real signal: one source IP driving many blocks in a short window =
+       active scan/exploitation campaign against a published site. -->
+
+  <!-- 10 blocks from the same source IP within 120s -> HIGH (page). -->
+  <rule id="117100" level="10" frequency="10" timeframe="120">
+    <if_matched_sid>117011</if_matched_sid>
+    <same_field>waf_client_ip</same_field>
+    <description>WAF: sustained blocking against a published site - 10+ blocks from $(waf_client_ip) in 120s (likely active scan/exploitation)</description>
+    <group>attack,web_attack,multiple_attacks,</group>
+  </rule>
+
+  <!-- 5 CRITICAL blocks from the same source IP within 120s -> HIGHER (page).
+       Ordered after 117100 but keyed on the CRITICAL child so critical bursts
+       escalate even below the generic-block count. -->
+  <rule id="117101" level="12" frequency="5" timeframe="120">
+    <if_matched_sid>117010</if_matched_sid>
+    <same_field>waf_client_ip</same_field>
+    <description>WAF: critical-severity attack burst - 5+ CRITICAL blocks from $(waf_client_ip) in 120s</description>
+    <group>attack,web_attack,multiple_attacks,</group>
+  </rule>
+
+</group>
