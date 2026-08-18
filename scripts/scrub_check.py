@@ -20,7 +20,7 @@ FORBIDDEN = [
     (r"\bpvecluster\b",                        "real Proxmox cluster name"),
     (r"\b5217ce18fb7a\b",                      "real cron job id"),
     (r"(?i)\bwaf_[A-Za-z0-9]{20,}",           "WAF API key fragment"),
-    (r"(?i)\b(password|passwd|secret|api[_-]?key|token)\b\s*[:=]\s*['\"]?[A-Za-z0-9!@#$%^&*_\-]{8,}",
+    (r"(?i)\b(password|passwd|secret|api[_-]?key|token)\b\s*[:=]\s*['\"]?(?!\$|<|CHANGE_ME|None|\"\"|'')[A-Za-z0-9!@#$%^&*_\-]{8,}",
      "possible hardcoded secret value"),
 ]
 # Values that ARE allowed (documentation placeholders / example ranges)

@@ -9,7 +9,9 @@ plus a ready-to-import **Wazuh/OpenSearch dashboard**.
 > Sanitized, adaptable reference. Placeholders (`<WAF_HOST>`, `<GRAYLOG_HOST>`,
 > `<WAZUH_HOST>`, RFC5737 example networks) stand in for real values, so you can drop in
 > your own environment. Carries no real environment data. Companion to the broader
-> [soc-pipeline](https://github.com/secdoc/soc-pipeline-public) build.
+> [soc-pipeline](https://github.com/secdoc/soc-pipeline-public) build and its siblings
+> [greenbone-wazuh-graylog](https://github.com/secdoc/greenbone-wazuh-graylog) and
+> [technitium-wazuh-graylog](https://github.com/secdoc/technitium-wazuh-graylog).
 
 ## Why this exists
 
