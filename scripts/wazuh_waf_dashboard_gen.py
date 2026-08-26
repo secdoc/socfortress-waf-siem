@@ -13,7 +13,8 @@ so they aggregate directly):
   - Severity tier: donut on rule.level (2/3/5/10/12)
   - Action split: donut on data.waf_action (blocked/detected/passed)
   - Top attacking source IPs: bar on data.waf_true_ip  (TRUE client behind Cloudflare)
-  - Top CRS rules: bar on data.waf_rule_id
+  - Top primary CRS rule IDs: bar on data.waf_rule_id
+  - CRS rule context: full-width bar on data.waf_matched_rules (ID + description chain)
   - Top targeted hosts: bar on data.waf_host
   - Top targeted URIs: bar on data.waf_uri
   - Attacks by country: bar on data.waf_geo_country
@@ -130,7 +131,10 @@ def build_objects():
         _pie("waf_action", "SOC WAF - Action split", "data.waf_action", "action"),
         _terms_bar("waf_top_src", "SOC WAF - Top attacking source IPs (true client)",
                    "data.waf_true_ip", 15, "source IP"),
-        _terms_bar("waf_top_rules", "SOC WAF - Top CRS rules", "data.waf_rule_id", 15, "CRS rule"),
+        _terms_bar("waf_top_rules", "SOC WAF - Top primary CRS rule IDs",
+                   "data.waf_rule_id", 15, "primary CRS rule ID"),
+        _terms_bar("waf_rule_context", "SOC WAF - CRS rule context (matched rule chain)",
+                   "data.waf_matched_rules", 20, "CRS rule ID and description"),
         _terms_bar("waf_top_hosts", "SOC WAF - Top targeted hosts", "data.waf_host", 12, "host"),
         _terms_bar("waf_top_uris", "SOC WAF - Top targeted URIs", "data.waf_uri", 15, "URI"),
         _terms_bar("waf_by_country", "SOC WAF - Attacks by country", "data.waf_geo_country", 12, "country"),
@@ -143,12 +147,13 @@ def build_dashboard(dash_id, title):
     GRID_W = 48
     sizes = {
         "waf_kpi_total": 8, "waf_kpi_blocked": 8, "waf_sev_tier": 8, "waf_action": 8,
-        "waf_top_src": 12, "waf_top_rules": 12, "waf_top_hosts": 10, "waf_top_uris": 10,
-        "waf_by_country": 10, "waf_timeline": 10,
+        "waf_top_src": 12, "waf_top_rules": 12, "waf_rule_context": 16,
+        "waf_top_hosts": 10, "waf_top_uris": 10, "waf_by_country": 10, "waf_timeline": 10,
     }
     rows = [
         [("waf_kpi_total", 12), ("waf_kpi_blocked", 12), ("waf_sev_tier", 12), ("waf_action", 12)],  # 48
         [("waf_top_src", 24), ("waf_top_rules", 24)],   # 48
+        [("waf_rule_context", 48)],                       # 48
         [("waf_top_hosts", 24), ("waf_top_uris", 24)],  # 48
         [("waf_by_country", 48)],                        # 48
         [("waf_timeline", 48)],                          # 48

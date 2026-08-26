@@ -1,6 +1,6 @@
 # How-To: Ship SOCFortress WAF logs to Graylog + Wazuh
 
-*Phase 5. Source of truth: `secdoc/soc-pipeline`. Last verified live: 2026-08-18.*
+*Phase 5. Source of truth: `secdoc/soc-pipeline`. Last verified live: 2026-08-26.*
 
 Wires the SOCFortress WAF (Caddy + Coraza / OWASP CRS v4) request+blocking logs into the SOC
 pipeline the standard way: one read-only collector pulls the WAF management API, normalizes each
@@ -112,8 +112,11 @@ a rate threshold pages. Thresholds are starting points — tune against baseline
 "SOC Pipeline - WAF (SOCFortress/Coraza)" dashboard over `wazuh-alerts-*`
 (`rule.groups: waf`). All `data.waf_*` fields are keyword-mapped, so they aggregate directly (no
 `.keyword` suffix). Panels: total + blocked KPIs, severity-tier donut (rule.level), action split,
-**top attacking source IPs (data.waf_true_ip — the real client, not the CF edge)**, top CRS rules,
-top targeted hosts, top targeted URIs, attacks by country, and a timeline split by tier.
+**top attacking source IPs (data.waf_true_ip — the real client, not the CF edge)**, top primary
+CRS rule IDs, a full-width **CRS rule context** panel on `data.waf_matched_rules` showing matched
+IDs and descriptions, top targeted hosts, top targeted URIs, attacks by country, and a timeline
+split by tier. The ID panel is the stable counting dimension; the matched-rule chain explains the
+detection and preserves multi-rule context.
 
 Generate + import (dashboard API on :443, not :9200):
 ```
@@ -132,7 +135,8 @@ MUST sum to 48 or the remainder renders as empty space. The generator `assert`s 
   `waf_severity`, `waf_rule_id` populated.
 - Wazuh indexer: `rule.id:[117000 TO 117999]` — CRITICAL blocks show as 117010/level 5.
 - Dashboard: aggregations on `data.waf_true_ip` chart real attacker IPs (CF edges appear only under
-  `data.waf_edge_ip`).
+  `data.waf_edge_ip`). The CRS context panel aggregates `data.waf_matched_rules` so analysts see
+  labels such as `930130:Restricted File Access Attempt` instead of only numeric IDs.
 - Cron: `/var/log/waf-pull.log` one-line JSON per run.
 
 ## Related

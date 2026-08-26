@@ -4,7 +4,7 @@ Wire a **[SOCFortress WAF Management Platform](https://github.com/socfortress/wa
 (Caddy + Coraza / OWASP Core Rule Set) into a SIEM as a first-class detection lane: a
 read-only collector pulls the WAF's request/blocking logs, normalizes them, and delivers
 to **both Graylog** (retention/hunting, full volume) and **Wazuh** (detection, rule-gated),
-plus a ready-to-import **Wazuh/OpenSearch dashboard**.
+plus a ready-to-import **Wazuh/OpenSearch dashboard** with CRS rule IDs and matched-rule descriptions.
 
 > Sanitized, adaptable reference. Placeholders (`<WAF_HOST>`, `<GRAYLOG_HOST>`,
 > `<WAZUH_HOST>`, RFC5737 example networks) stand in for real values, so you can drop in
@@ -52,7 +52,7 @@ Both consumers get the normalized event independently.
 
 All WAF fields are namespaced `waf_*` so they don't collide with the Wazuh indexer's reserved
 `data.*` object mappings (which would silently drop the whole doc). Key fields: `waf_true_ip`,
-`waf_edge_ip`, `waf_rule_id` (CRS id), `waf_action`, `waf_severity`, `waf_matched_ids`,
+`waf_edge_ip`, `waf_rule_id` (CRS id), `waf_action`, `waf_severity`, `waf_matched_rules`, `waf_matched_ids`,
 `waf_host`, `waf_uri`, `waf_geo_cc/country/city`. See `samples/waf-events-sample.jsonl`.
 
 ## Detection rules (Wazuh, `wazuh/rules/waf_rules.xml`)
@@ -73,7 +73,8 @@ stay low-level (queryable, no page); only a source IP crossing a rate threshold 
 
 Generates an OpenSearch Dashboards saved-objects NDJSON (also prebuilt at
 `docs/wazuh-waf-dashboard.ndjson`): KPIs, severity/action donuts, **top attacking source IPs
-(true client)**, top CRS rules, targeted hosts/URIs, attacks by country, timeline.
+(true client)**, top primary CRS rule IDs, a full-width matched-rule context panel with CRS IDs and
+descriptions, targeted hosts/URIs, attacks by country, and a timeline.
 
 ## Quick start
 
@@ -95,6 +96,7 @@ dashboard import in [`docs/how-to-waf-feed.md`](docs/how-to-waf-feed.md).
 collector/   waf_collector.py (pull+normalize), waf_pipeline.py (fan-out to Graylog+Wazuh)
 wazuh/rules/ waf_rules.xml (117xxx detection + anti-flood frequency rules)
 scripts/     wazuh_waf_dashboard_gen.py (dashboard-as-code), scrub_check.py (public gate)
+tests/       dashboard generator regression tests
 docs/        how-to-waf-feed.md, SANITIZATION.md, wazuh-waf-dashboard.ndjson
 samples/     waf-events-sample.jsonl (SYNTHETIC)
 ```
