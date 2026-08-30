@@ -29,7 +29,7 @@ Usage:
   waf_collector.py --out <dir> [--state <file>] [--max-pages N] [--page-size N]
                    [--dry-run] [--first-run-limit N]
 """
-import argparse, json, os, sys, ssl, datetime, urllib.request, urllib.parse
+import argparse, hashlib, json, os, sys, ssl, datetime, urllib.request, urllib.parse
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 STATE_DEFAULT = os.path.join(HERE, ".waf_state.json")
@@ -158,6 +158,16 @@ def _true_source_geo(ev):
             ev.get("geoip_city", ""))
 
 
+def stable_event_id(ev):
+    identity = "\n".join(
+        str(ev.get(key, ""))
+        for key in (
+            "id", "transaction_id", "timestamp", "site_id", "rule_id", "host", "uri"
+        )
+    )
+    return hashlib.sha256(("socfortress-waf\n" + identity).encode()).hexdigest()
+
+
 def normalize(ev):
     """One WAF log entry -> flat normalized event.
 
@@ -175,6 +185,7 @@ def normalize(ev):
     return {
         "event_type": "waf_event",
         "source": "socfortress-waf",
+        "waf_event_id": stable_event_id(ev),
         "timestamp": ev.get("timestamp", ""),
         "waf_id": ev.get("id", ""),
         "waf_txid": ev.get("transaction_id", ""),
@@ -182,6 +193,7 @@ def normalize(ev):
         "waf_true_ip": true_ip,            # real attacker (behind Cloudflare) - use for blocklist/geo
         "waf_edge_ip": edge_ip,            # Cloudflare edge node that fronted the request
         "waf_client_ip": true_ip,          # keep waf_client_ip = the meaningful (true) IP for existing panels/rules
+        "srcip": true_ip,                  # unified field: Wazuh manager GeoIP-enriches data.srcip -> GeoLocation.location (map)
         "waf_method": ev.get("method", ""),
         "waf_uri": (ev.get("uri", "") or "")[:1024],
         "waf_host": ev.get("host", ""),

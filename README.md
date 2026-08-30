@@ -53,7 +53,9 @@ Both consumers get the normalized event independently.
 All WAF fields are namespaced `waf_*` so they don't collide with the Wazuh indexer's reserved
 `data.*` object mappings (which would silently drop the whole doc). Key fields: `waf_true_ip`,
 `waf_edge_ip`, `waf_rule_id` (CRS id), `waf_action`, `waf_severity`, `waf_matched_rules`, `waf_matched_ids`,
-`waf_host`, `waf_uri`, `waf_geo_cc/country/city`. See `samples/waf-events-sample.jsonl`.
+`waf_host`, `waf_uri`, `waf_geo_cc/country/city`, and stable SHA-256 `waf_event_id`. See `samples/waf-events-sample.jsonl`.
+
+The pipeline writes source progress to a candidate state and atomically promotes it only after every configured consumer succeeds. It supports legacy GELF/TCP and Wazuh localfile delivery, plus acknowledged Graylog GELF HTTP over HTTPS and newline-delimited Wazuh TCP endpoints.
 
 ## Detection rules (Wazuh, `wazuh/rules/waf_rules.xml`)
 
@@ -72,7 +74,7 @@ stay low-level (queryable, no page); only a source IP crossing a rate threshold 
 ## Dashboard (`scripts/wazuh_waf_dashboard_gen.py`)
 
 Generates an OpenSearch Dashboards saved-objects NDJSON (also prebuilt at
-`docs/wazuh-waf-dashboard.ndjson`): KPIs, severity/action donuts, **top attacking source IPs
+`docs/wazuh-waf-dashboard.ndjson`): total and distinct-stable-event KPIs, severity/action donuts, **top attacking source IPs
 (true client)**, top primary CRS rule IDs, a full-width matched-rule context panel with CRS IDs and
 descriptions, targeted hosts/URIs, attacks by country, and a timeline.
 
@@ -82,6 +84,9 @@ descriptions, targeted hosts/URIs, attacks by country, and a timeline.
 cp .env.example .env      # fill in WAF_*, GRAYLOG_HOST, WAZUH_* (never commit real .env)
 python3 collector/waf_pipeline.py --dry-run          # login + pull + normalize, no delivery
 python3 collector/waf_pipeline.py                    # deliver new events to Graylog + Wazuh
+python3 collector/waf_pipeline.py \
+  --graylog-endpoint target=graylog.example.local:12215:https --graylog-ca ./ca.pem \
+  --wazuh-endpoint target=wazuh.example.local:5514:tcp --no-default-graylog --no-default-wazuh
 python3 scripts/wazuh_waf_dashboard_gen.py --index-pattern-id 'wazuh-alerts-*' \
     --out docs/wazuh-waf-dashboard.ndjson            # regenerate the dashboard NDJSON
 ```

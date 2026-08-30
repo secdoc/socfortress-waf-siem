@@ -72,6 +72,8 @@ key on the meaningful value. Consequences:
   `/var/ossec/logs/waf/events.jsonl` (`<log_format>json</log_format>`), read by the built-in json
   decoder. No custom decoder.
 
+For HA or segmented targets, use `--graylog-endpoint NAME=HOST:PORT:https` with `--graylog-ca` for per-event HTTP acknowledgement, and `--wazuh-endpoint NAME=HOST:PORT:tcp` for newline-delimited JSON. Add `--no-default-graylog` and `--no-default-wazuh` after target acceptance. Source state is committed only after every configured consumer succeeds.
+
 **GELF/TCP note:** the sender sets `SO_LINGER` + `shutdown(SHUT_WR)` then waits for peer close, so a
 batch fully drains before `close()`. **Search gotcha:** GELF messages carry the *event* timestamp,
 so Graylog stores them at event time. When verifying, widen the search range (events can be hours
@@ -109,8 +111,8 @@ a rate threshold pages. Thresholds are starting points — tune against baseline
 ## Dashboard (Wazuh / OpenSearch Dashboards)
 
 `scripts/wazuh_waf_dashboard_gen.py` generates a saved-objects NDJSON for the
-"SOC Pipeline - WAF (SOCFortress/Coraza)" dashboard over `wazuh-alerts-*`
-(`rule.groups: waf`). All `data.waf_*` fields are keyword-mapped, so they aggregate directly (no
+"SOC Pipeline - WAF (Enterprise Target)" dashboard over `wazuh-alerts-*`
+(`rule.groups: waf`). The dashboard includes a distinct stable-event KPI on `data.waf_event_id`. All `data.waf_*` fields are keyword-mapped, so they aggregate directly (no
 `.keyword` suffix). Panels: total + blocked KPIs, severity-tier donut (rule.level), action split,
 **top attacking source IPs (data.waf_true_ip — the real client, not the CF edge)**, top primary
 CRS rule IDs, a full-width **CRS rule context** panel on `data.waf_matched_rules` showing matched

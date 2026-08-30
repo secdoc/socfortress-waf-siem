@@ -9,6 +9,7 @@ dashboard. Builds "SOC Pipeline - WAF (SOCFortress/Coraza)" over the existing
 Panels (aggregation-based, no scripted fields; all data.waf_* are keyword-mapped
 so they aggregate directly):
   - KPI: total WAF alerts
+  - KPI: distinct stable WAF events
   - KPI: blocked count (rule.groups: web_attack AND data.waf_action: blocked)
   - Severity tier: donut on rule.level (2/3/5/10/12)
   - Action split: donut on data.waf_action (blocked/detected/passed)
@@ -55,6 +56,16 @@ def _metric(vid, title, label, query="rule.groups: waf"):
                                 "labels": {"show": True}, "style": {"fontSize": 48}}},
           "aggs": [{"id": "1", "enabled": True, "type": "count", "schema": "metric",
                     "params": {"customLabel": label}}]}
+    return _vis(vid, title, vs, query)
+
+
+def _cardinality_metric(vid, title, field, label, query="rule.groups: waf"):
+    vs = {"title": title, "type": "metric",
+          "params": {"metric": {"percentageMode": False, "useRanges": False,
+                                "colorSchema": "Green to Red", "metricColorMode": "None",
+                                "labels": {"show": True}, "style": {"fontSize": 48}}},
+          "aggs": [{"id": "1", "enabled": True, "type": "cardinality", "schema": "metric",
+                    "params": {"field": field, "customLabel": label}}]}
     return _vis(vid, title, vs, query)
 
 
@@ -125,6 +136,8 @@ def _timeline(vid, title, split_field, query="rule.groups: waf"):
 def build_objects():
     objs = [
         _metric("waf_kpi_total", "SOC WAF - Total WAF alerts", "WAF alerts"),
+        _cardinality_metric("waf_kpi_unique", "SOC WAF - Distinct stable events",
+                            "data.waf_event_id", "unique WAF events"),
         _metric("waf_kpi_blocked", "SOC WAF - Blocked requests", "blocked",
                 query="rule.groups: waf AND data.waf_action: blocked"),
         _pie("waf_sev_tier", "SOC WAF - Severity tier (rule.level)", "rule.level", "tier"),
@@ -146,12 +159,14 @@ def build_objects():
 def build_dashboard(dash_id, title):
     GRID_W = 48
     sizes = {
-        "waf_kpi_total": 8, "waf_kpi_blocked": 8, "waf_sev_tier": 8, "waf_action": 8,
+        "waf_kpi_total": 8, "waf_kpi_unique": 8, "waf_kpi_blocked": 8,
+        "waf_sev_tier": 8, "waf_action": 8,
         "waf_top_src": 12, "waf_top_rules": 12, "waf_rule_context": 16,
         "waf_top_hosts": 10, "waf_top_uris": 10, "waf_by_country": 10, "waf_timeline": 10,
     }
     rows = [
-        [("waf_kpi_total", 12), ("waf_kpi_blocked", 12), ("waf_sev_tier", 12), ("waf_action", 12)],  # 48
+        [("waf_kpi_total", 16), ("waf_kpi_unique", 16), ("waf_kpi_blocked", 16)],  # 48
+        [("waf_sev_tier", 24), ("waf_action", 24)],        # 48
         [("waf_top_src", 24), ("waf_top_rules", 24)],   # 48
         [("waf_rule_context", 48)],                       # 48
         [("waf_top_hosts", 24), ("waf_top_uris", 24)],  # 48
@@ -176,7 +191,7 @@ def build_dashboard(dash_id, title):
         "id": dash_id, "type": "dashboard",
         "attributes": {
             "title": title, "hits": 0,
-            "description": "SOCFortress WAF (Coraza/OWASP CRS) posture over wazuh-alerts-* "
+            "description": "SOCFortress WAF enterprise target (Coraza/OWASP CRS) posture over wazuh-alerts-* "
                            "(rule.groups: waf). Source IP/geo use the TRUE client (behind "
                            "Cloudflare), not the CF edge. Built by scripts/wazuh_waf_dashboard_gen.py.",
             "panelsJSON": json.dumps(panels_json),
@@ -196,7 +211,7 @@ def main():
     ap.add_argument("--index-pattern-id", required=True)
     ap.add_argument("--out", required=True)
     ap.add_argument("--dashboard-id", default="soc-pipeline-waf-socfortress")
-    ap.add_argument("--title", default="SOC Pipeline - WAF (SOCFortress/Coraza)")
+    ap.add_argument("--title", default="SOC Pipeline - WAF (Enterprise Target)")
     args = ap.parse_args()
 
     objs = build_objects()

@@ -15,7 +15,8 @@ boundary). Read-only against the WAF. Safe to cron (15 min).
 Env (/opt/data/.env): WAF_ADMIN_EMAIL, WAF_ADMIN_PASSWORD, GRAYLOG_HOST,
   WAZUH_SSH_USER, WAZUH_SSH_HOST, WAZUH_SSH_KEY.
 """
-import argparse, json, os, socket, struct, subprocess, sys, tempfile, time
+import argparse, http.client, json, os, shutil, socket, ssl, struct, subprocess, sys, tempfile, time
+from pathlib import Path
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
@@ -27,6 +28,22 @@ def load_env(path="/opt/data/.env"):
             if "=" in l and not l.strip().startswith("#"):
                 k, v = l.strip().split("=", 1); e[k] = v
     return e
+
+
+def parse_endpoint(value):
+    name, separator, address = value.partition("=")
+    if not separator or not name or not address:
+        raise ValueError("Endpoint must be NAME=HOST:PORT[:tcp|https]")
+    parts = address.rsplit(":", 2)
+    transport = parts[-1].lower() if len(parts) == 3 else "tcp"
+    if len(parts) == 3 and transport in ("tcp", "https"):
+        host, port_text, _transport = parts
+    elif len(parts) == 2:
+        host, port_text = parts
+        transport = "tcp"
+    else:
+        raise ValueError("Endpoint must include host and port")
+    return {"name": name, "host": host, "port": int(port_text), "transport": transport}
 
 
 def sev_to_level(sev):
@@ -72,6 +89,7 @@ def to_gelf(ev, source_host):
         "_waf_geo_country": ev.get("waf_geo_country", ""),
         "_waf_geo_city": ev.get("waf_geo_city", ""),
         "_waf_raw": ev.get("waf_raw", ""),
+        "_event_hash": ev.get("waf_event_id", ""),
     }
     return g
 
@@ -97,6 +115,49 @@ def send_graylog_tcp(events, host, port, source_host):
     return n
 
 
+def send_graylog_http(events, host, port, source_host, ssl_context):
+    connection = http.client.HTTPSConnection(
+        host, port, context=ssl_context, timeout=30
+    )
+    delivered = 0
+    try:
+        for event in events:
+            connection.request(
+                "POST",
+                "/gelf",
+                json.dumps(to_gelf(event, source_host), ensure_ascii=False).encode(),
+                {"Content-Type": "application/json"},
+            )
+            response = connection.getresponse()
+            response.read()
+            if not 200 <= response.status < 300:
+                raise RuntimeError(
+                    f"Graylog HTTP delivery returned {response.status}"
+                )
+            delivered += 1
+    finally:
+        connection.close()
+    return delivered
+
+
+def wazuh_event(event):
+    return {key: value for key, value in event.items() if key != "waf_raw"}
+
+
+def send_wazuh_tcp(events, host, port):
+    connection = socket.create_connection((host, port), timeout=30)
+    delivered = 0
+    try:
+        for event in events:
+            connection.sendall(
+                json.dumps(wazuh_event(event), ensure_ascii=False).encode() + b"\n"
+            )
+            delivered += 1
+    finally:
+        connection.close()
+    return delivered
+
+
 def append_wazuh(events, env, wazuh_path):
     key = env["WAZUH_SSH_KEY"].replace("/opt/data/home/.ssh", os.path.expanduser("~/.ssh"))
     if not os.path.exists(key):
@@ -104,8 +165,7 @@ def append_wazuh(events, env, wazuh_path):
     # detection subset for Wazuh: drop the bulky raw blob (Graylog keeps full fidelity)
     lean = []
     for ev in events:
-        d = {k: v for k, v in ev.items() if k != "waf_raw"}
-        lean.append(d)
+        lean.append(wazuh_event(ev))
     data = "".join(json.dumps(ev, ensure_ascii=False) + "\n" for ev in lean)
     # ensure the target dir exists on the manager, then append
     remote = f"mkdir -p $(dirname {wazuh_path}) && cat >> {wazuh_path}"
@@ -115,11 +175,27 @@ def append_wazuh(events, env, wazuh_path):
     return r.returncode, r.stderr[:200]
 
 
+def deliver_then_commit(candidate_state, state_path, events, deliveries):
+    results = {name: delivery(events) for name, delivery in deliveries}
+    target = Path(state_path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    temporary = target.with_suffix(target.suffix + ".tmp")
+    shutil.copyfile(candidate_state, temporary)
+    os.chmod(temporary, 0o600)
+    os.replace(temporary, target)
+    return results
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--state", default=os.path.join(HERE, ".waf_state.json"))
     ap.add_argument("--graylog-port", type=int, default=12203)
+    ap.add_argument("--graylog-endpoint", action="append", default=[])
+    ap.add_argument("--graylog-ca")
+    ap.add_argument("--no-default-graylog", action="store_true")
     ap.add_argument("--wazuh-path", default="/var/ossec/logs/waf/events.jsonl")
+    ap.add_argument("--wazuh-endpoint", action="append", default=[])
+    ap.add_argument("--no-default-wazuh", action="store_true")
     ap.add_argument("--source-host", default="socfortress-waf")
     ap.add_argument("--page-size", type=int, default=100)
     ap.add_argument("--max-pages", type=int, default=50)
@@ -132,9 +208,13 @@ def main():
 
     env = load_env()
     workdir = tempfile.mkdtemp(prefix="wafpipe_")
+    state_path = Path(args.state)
+    candidate_state = Path(workdir) / "waf-state.candidate.json"
+    if state_path.exists():
+        shutil.copy2(state_path, candidate_state)
 
     cmd = [sys.executable, os.path.join(HERE, "waf_collector.py"),
-           "--out", workdir, "--state", args.state,
+           "--out", workdir, "--state", str(candidate_state),
            "--page-size", str(args.page_size), "--max-pages", str(args.max_pages),
            "--first-run-limit", str(args.first_run_limit)]
     if args.dry_run:
@@ -153,18 +233,62 @@ def main():
     if not events:
         print("no new WAF events to deliver"); return
 
-    delivered = {}
+    deliveries = []
     if not args.no_graylog:
-        try:
-            n = send_graylog_tcp(events, env["GRAYLOG_HOST"], args.graylog_port, args.source_host)
-            delivered["graylog"] = n
-        except Exception as e:
-            print("WARN: graylog delivery failed:", str(e)[:200])
-            delivered["graylog"] = f"ERROR: {e}"
+        endpoints = [parse_endpoint(value) for value in args.graylog_endpoint]
+        if not args.no_default_graylog:
+            endpoints.insert(
+                0,
+                {
+                    "name": "production-graylog",
+                    "host": env["GRAYLOG_HOST"],
+                    "port": args.graylog_port,
+                    "transport": "tcp",
+                },
+            )
+        tls_context = None
+        if any(endpoint["transport"] == "https" for endpoint in endpoints):
+            if not args.graylog_ca:
+                raise SystemExit("--graylog-ca is required for HTTPS Graylog")
+            tls_context = ssl.create_default_context(cafile=args.graylog_ca)
+        for endpoint in endpoints:
+            def deliver_graylog(batch, endpoint=endpoint):
+                if endpoint["transport"] == "https":
+                    return send_graylog_http(
+                        batch,
+                        endpoint["host"],
+                        endpoint["port"],
+                        args.source_host,
+                        tls_context,
+                    )
+                return send_graylog_tcp(
+                    batch, endpoint["host"], endpoint["port"], args.source_host
+                )
+            deliveries.append((endpoint["name"], deliver_graylog))
     if not args.no_wazuh:
-        rc, err = append_wazuh(events, env, args.wazuh_path)
-        delivered["wazuh"] = "ok" if rc == 0 else f"ERROR: {err}"
+        if not args.no_default_wazuh:
+            def deliver_production_wazuh(batch):
+                rc, error = append_wazuh(batch, env, args.wazuh_path)
+                if rc:
+                    raise RuntimeError("Wazuh delivery failed: " + error)
+                return len(batch)
+            deliveries.append(("production-wazuh", deliver_production_wazuh))
+        for value in args.wazuh_endpoint:
+            endpoint = parse_endpoint(value)
+            if endpoint["transport"] != "tcp":
+                raise SystemExit("Wazuh endpoint transport must be tcp")
+            deliveries.append(
+                (
+                    endpoint["name"],
+                    lambda batch, endpoint=endpoint: send_wazuh_tcp(
+                        batch, endpoint["host"], endpoint["port"]
+                    ),
+                )
+            )
 
+    delivered = deliver_then_commit(
+        candidate_state, state_path, events, deliveries
+    )
     print(f"delivered {len(events)} WAF events:", json.dumps(delivered))
 
 
