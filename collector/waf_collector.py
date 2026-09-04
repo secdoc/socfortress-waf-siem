@@ -22,8 +22,10 @@ INCREMENTAL (API quirk, verified 2026-08-18):
 
 READ-ONLY: only auth/login (POST creds) + logs GET. Never writes WAF config.
 
-Env (/opt/data/.env): WAF_ADMIN_EMAIL, WAF_ADMIN_PASSWORD, WAF_BASE (optional,
-default https://waf.example.local:8443).
+The environment file path is configurable with `WAF_ENV_FILE`; the default is
+`~/.config/soc-pipeline/waf.env`. Required variables are WAF_ADMIN_EMAIL and
+WAF_ADMIN_PASSWORD. WAF_BASE is optional and defaults to
+https://waf.example.local:8443.
 
 Usage:
   waf_collector.py --out <dir> [--state <file>] [--max-pages N] [--page-size N]
@@ -42,7 +44,10 @@ _CTX.check_hostname = False
 _CTX.verify_mode = ssl.CERT_NONE
 
 
-def load_env(path="/opt/data/.env"):
+def load_env(path=None):
+    path = path or os.environ.get(
+        "WAF_ENV_FILE", os.path.expanduser("~/.config/soc-pipeline/waf.env")
+    )
     e = {}
     if os.path.exists(path):
         for line in open(path):
@@ -235,7 +240,7 @@ def main():
     base = env.get("WAF_BASE", DEFAULT_BASE).rstrip("/")
     email, pw = env.get("WAF_ADMIN_EMAIL"), env.get("WAF_ADMIN_PASSWORD")
     if not email or not pw:
-        print("ERROR: WAF_ADMIN_EMAIL / WAF_ADMIN_PASSWORD not in /opt/data/.env"); sys.exit(1)
+        print("ERROR: WAF_ADMIN_EMAIL / WAF_ADMIN_PASSWORD are not configured"); sys.exit(1)
 
     state = load_state(args.state)
     hw = state.get("high_water", "")

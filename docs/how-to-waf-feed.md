@@ -1,6 +1,6 @@
 # How-To: Ship SOCFortress WAF logs to Graylog + Wazuh
 
-*Phase 5. Source of truth: `secdoc/soc-pipeline`. Last verified live: 2026-08-26.*
+*Phase 5. Source of truth: `private implementation repository`. Last verified live: 2026-08-26.*
 
 Wires the SOCFortress WAF (Caddy + Coraza / OWASP CRS v4) request+blocking logs into the SOC
 pipeline the standard way: one read-only collector pulls the WAF management API, normalizes each

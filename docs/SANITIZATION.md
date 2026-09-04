@@ -26,8 +26,8 @@ merely a git-history rewrite.
 
 ## Forbidden in public (enforced by scrub-check)
 
-- `secdoc.home`, `secdoc.tech`, real published hostnames
-- Any real `10.10.10.x`, `192.168.x.x`, `10.13.37.x` address
+- Internal-only DNS names, owner-specific public hostnames not required by the example
+- Specific RFC1918 host addresses that reveal a real topology
 - Real VM ids, cron job ids, cluster/zone names
 - Any credential, token, or `waf_...` key fragment
 

@@ -12,8 +12,7 @@ One cycle:
 Dedupe/incremental handled by the collector (high-water + transaction_id
 boundary). Read-only against the WAF. Safe to cron (15 min).
 
-Env (/opt/data/.env): WAF_ADMIN_EMAIL, WAF_ADMIN_PASSWORD, GRAYLOG_HOST,
-  WAZUH_SSH_USER, WAZUH_SSH_HOST, WAZUH_SSH_KEY.
+The environment file path is configurable with `WAF_ENV_FILE`; the default is `~/.config/soc-pipeline/waf.env`.
 """
 import argparse, http.client, json, os, shutil, socket, ssl, struct, subprocess, sys, tempfile, time
 from pathlib import Path
@@ -21,7 +20,10 @@ from pathlib import Path
 HERE = os.path.dirname(os.path.abspath(__file__))
 
 
-def load_env(path="/opt/data/.env"):
+def load_env(path=None):
+    path = path or os.environ.get(
+        "WAF_ENV_FILE", os.path.expanduser("~/.config/soc-pipeline/waf.env")
+    )
     e = {}
     if os.path.exists(path):
         for l in open(path):
@@ -159,7 +161,7 @@ def send_wazuh_tcp(events, host, port):
 
 
 def append_wazuh(events, env, wazuh_path):
-    key = env["WAZUH_SSH_KEY"].replace("/opt/data/home/.ssh", os.path.expanduser("~/.ssh"))
+    key = os.path.expanduser(env["WAZUH_SSH_KEY"])
     if not os.path.exists(key):
         key = os.path.expanduser("~/.ssh/wazuh_hermes")
     # detection subset for Wazuh: drop the bulky raw blob (Graylog keeps full fidelity)
