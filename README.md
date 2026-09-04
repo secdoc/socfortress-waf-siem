@@ -115,5 +115,5 @@ Dual-licensed: code under Apache-2.0 (`LICENSE`), docs/diagrams under CC BY 4.0
 
 ## GitLab CI baseline
 
-GitLab CI runs repository integrity validation and secret scanning. The baseline validates tracked Python syntax, shell syntax, and JSON parsing, while the secret scan uses a pinned public container image. Repository-specific build and test gates remain additive to this baseline.
+GitLab CI validates tracked JSON, Python, and shell syntax, then runs a network-independent high-confidence secret scan across full Git history. The public pipeline contains no private registry, runner, credential, CA, or internal-domain reference.
 
